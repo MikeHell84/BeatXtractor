@@ -393,6 +393,15 @@ def apply_pan(audio, pan):
 
 
 def render_track(track, sr):
+    """Render de la pista con sus ajustes (filtros/gate/ganancia/pan/fades).
+
+    Importante: aquí NO se tiene en cuenta `mute`. El mute solo afecta a la
+    mezcla (`mix_tracks`), que ya salta pistas silenciadas. Si `render_track`
+    silenciase cada pista muteada, exportar un stem individual (p.ej. el
+    "Drums (Demucs)" que se mutéa tras dividir para no duplicar en la mezcla)
+    produciría un WAV en silencio. Para exportar individual siempre debe
+    sonar el audio real de la pista.
+    """
     x = np.asarray(track.audio, dtype=np.float32).copy()
 
     x = apply_filters(x, sr, track.highpass, track.lowpass)
@@ -400,9 +409,6 @@ def render_track(track, sr):
     x *= db_to_lin(track.gain_db)
     x = apply_pan(x, track.pan)
     x = apply_fades(x, sr, track.fade_in_ms, track.fade_out_ms)
-
-    if track.mute:
-        x *= 0.0
 
     return x.astype(np.float32)
 
