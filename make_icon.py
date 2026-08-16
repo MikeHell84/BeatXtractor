@@ -236,6 +236,68 @@ def make_ico(sizes=(16, 24, 32, 48, 64, 128, 256)):
     return icon_path, os.path.getsize(icon_path) > 0
 
 
+def _icns_bytes(sizes_to_entries):
+    """Construye un archivo .icns multi-resolución (Apple).
+
+    sizes_to_entries: lista de (size, OSType, img)
+      e.g. (16, b'ic04', img16)  (32, b'ic05', img32) ...
+    """
+    from PySide6.QtCore import QBuffer, QIODevice
+    import struct
+    header = b"\x00\x00\x01\x00"  # ICNS magic
+    body = b""
+    for (size, ostype, img) in sizes_to_entries:
+        buf = QBuffer()
+        buf.open(QIODevice.OpenModeFlag.WriteOnly)
+        img.save(buf, "PNG")
+        png = bytes(buf.data())
+        buf.close()
+        entry = ostype + struct.pack(">I", len(png) + 8) + png
+        body += entry
+    total = 8 + len(body)
+    return header + struct.pack(">I", total) + body
+
+
+def make_icns():
+    """Genera assets/icon.icns para macOS desde los PNG ya renderizados."""
+    icns_specs = [
+        (16,  b"ic04"),
+        (32,  b"ic05"),
+        (32,  b"ic06"),   # 32  (fondo negro para retina) — uso genérico
+        (48,  b"ic07"),
+        (128, b"ic08"),
+        (256, b"ic09"),
+        (512, b"ic10"),
+        (512, b"ic11"),   # 512  (retina 256)
+        (1024,b"ic12"),   # 1024 (retina 512)
+    ]
+    seen = set()
+    entries = []
+    for (size, ostype) in icns_specs:
+        if size in seen:
+            # Renderizar a una resolución válida para este OSType
+            pass
+        if not os.path.exists(os.path.join(ASSETS, f"icon_{size}.png")):
+            render_png(size, size, os.path.join(ASSETS, f"icon_{size}.png"))
+        from PySide6.QtGui import QImage
+        img = QImage(os.path.join(ASSETS, f"icon_{size}.png"))
+        entries.append((size, ostype, img))
+        seen.add(size)
+
+    # Asegurar 512x512 y 1024x1024 para retina
+    for size in (512, 1024):
+        f = os.path.join(ASSETS, f"icon_{size}.png")
+        if not os.path.exists(f):
+            render_png(size, size, f)
+
+    icns_path = os.path.join(ASSETS, "icon.icns")
+    data = _icns_bytes(entries)
+    with open(icns_path, "wb") as f:
+        f.write(data)
+    print(f"ICNS:  {icns_path} ({len(data)} bytes)")
+    return icns_path, len(data) > 0
+
+
 def main():
     from PySide6.QtWidgets import QApplication
     _app = QApplication([])
@@ -243,9 +305,13 @@ def main():
     render_svg(512, 512, os.path.join(ASSETS, "logo.svg"))
     render_png(512, 512, os.path.join(ASSETS, "logo.png"))
     icon_path, ok = make_ico()
+    render_png(512, 512, os.path.join(ASSETS, "icon_512.png"))
+    render_png(1024, 1024, os.path.join(ASSETS, "icon_1024.png"))
     print(f"SVG:   {os.path.join(ASSETS, 'logo.svg')}")
     print(f"PNG:   {os.path.join(ASSETS, 'logo.png')}")
     print(f"ICO:   {icon_path} -> {ok}")
+    icns_path, icns_ok = make_icns()
+    print(f"ICNS:  {icns_path} -> {icns_ok}")
     print("OK")
 
 

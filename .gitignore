@@ -3,6 +3,15 @@ __pycache__/
 *.pyc
 .vscode/
 
+# Build artifacts (PyInstaller onedir)
+build/
+dist/
+build_tmp/
+
+# Assets bundleados (binarios grandes, generados en build-time)
+assets/ffmpeg/
+assets/models/
+
 # Datos de usuario / salidas
 Stems/
 *_session/

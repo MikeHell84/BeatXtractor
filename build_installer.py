@@ -129,6 +129,26 @@ def ensure_model():
         print("[build] modelo legacy ya está en assets/models/torch_hub")
 
 
+def _post_build_fixup(bundle_dir):
+    """Parcha el bundle onedir para asegurar que assets críticos están presentes."""
+    internal = bundle_dir / "_internal"
+    assets_dest = internal / "assets"
+    # Asegurar que los iconos están en assets/
+    for icon in ("icon.ico", "icon.icns", "icon.png", "icon_256.png"):
+        src = ASSETS / icon
+        if src.exists():
+            dst = assets_dest / icon
+            if not dst.exists() or src.stat().st_mtime > dst.stat().st_mtime:
+                shutil.copy2(src, dst)
+    # Verificar ffmpeg
+    for plat, subdir in [("win32", "win64"), ("linux", "linux-amd64"), ("darwin", "macos")]:
+        ffbin = assets_dest / "ffmpeg" / subdir
+        if not ffbin.exists():
+            src_ffmpeg = ASSETS / "ffmpeg" / subdir
+            if src_ffmpeg.exists():
+                shutil.copytree(src_ffmpeg, ffbin)
+
+
 def build_windows():
     ensure_ffmpeg("win32")
     ensure_model()
@@ -166,6 +186,7 @@ def build_windows():
         "--noconfirm",
         "--noconsole",         # GUI app
         "--add-data", add_assets,
+        "--icon", str(ASSETS / "icon.ico"),   # ícono del .exe
         "--collect-submodules", "torch",
         "--collect-submodules", "librosa",
         "--collect-submodules", "scipy",
@@ -181,6 +202,7 @@ def build_windows():
     if r.returncode != 0:
         raise SystemExit("PyInstaller falló")
     print(f"[build] onedir listo en {dist / 'BeatXtractor'}")
+    _post_build_fixup(dist / "BeatXtractor")
     return dist / "BeatXtractor"
 
 
@@ -200,6 +222,7 @@ def build_linux():
         "--onedir",
         "--noconfirm",
         "--add-data", f"{ASSETS}:assets",
+        "--icon", str(ASSETS / "icon.ico"),       # ícono del ejecutable
         "--collect-submodules", "torch",
         "--collect-submodules", "librosa",
         "--collect-submodules", "scipy",
@@ -218,6 +241,7 @@ def build_linux():
     if r.returncode != 0:
         raise SystemExit("PyInstaller falló")
     print(f"[build] AppDir (AppImage-ready) listo en {dist / 'BeatXtractor'}")
+    _post_build_fixup(dist / "BeatXtractor")
     return dist / "BeatXtractor"
 
 
@@ -237,6 +261,7 @@ def build_macos():
         "--windowed",
         "--noconfirm",
         "--add-data", f"{ASSETS}:assets",
+        "--icon", str(ASSETS / "icon.icns"),     # ícono del .app (macOS)
         "--collect-submodules", "torch",
         "--collect-submodules", "librosa",
         "--collect-submodules", "scipy",
@@ -255,6 +280,7 @@ def build_macos():
     if r.returncode != 0:
         raise SystemExit("PyInstaller falló")
     print(f"[build] .app listo en {dist / 'BeatXtractor.app'}")
+    _post_build_fixup(dist / "BeatXtractor.app" / "Contents" / "Resources")
     return dist / "BeatXtractor.app"
 
 
