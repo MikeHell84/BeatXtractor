@@ -1903,7 +1903,45 @@ class MainWindow(QMainWindow):
         super().closeEvent(ev)
 
 
+# ------------------------------------------------------------------
+# Bootstrap offline: modelo Demucs + FFmpeg bundleados junto al .exe
+# ------------------------------------------------------------------
+def _app_dir():
+    """Carpeta raíz de la aplicación (del instalador o del repo)."""
+    if hasattr(sys, "_MEIPASS"):
+        # PyInstaller onefile: archivos datos van a _MEIPASS
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _setup_offline_env():
+    """Hace que el programa sea 100% offline apuntando la caché de
+    HuggingFace (modelo de Demucs) y FFmpeg a carpetas bundleadas."""
+    base = _app_dir()
+    # Modelo Demucs pre-descargado en build-time
+    hf_cache = os.path.join(base, "assets", "models", "hf_cache")
+    if os.path.isdir(hf_cache):
+        os.environ["HF_HOME"] = hf_cache
+        os.environ["HF_HUB_OFFLINE"] = "1"          # nunca intentar Internet
+        os.environ["HF_HUB_OFFLINE_MODE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+    # Modelos legados de Demucs (torch.hub/checkpoints/*.th)
+    torch_hub = os.path.join(base, "assets", "models", "torch_hub")
+    if os.path.isdir(torch_hub):
+        os.environ["TORCH_HOME"] = torch_hub        # Demucs legacy fallback offline
+
+    # FFmpeg bundleado (win64/ffmpeg.exe, linux-amd64/ffmpeg, macos/ffmpeg)
+    plat = {"win32": "win64", "linux": "linux-amd64", "darwin": "macos"}.get(
+        sys.platform, sys.platform
+    )
+    ffbin = os.path.join(base, "assets", "ffmpeg", plat)
+    if os.path.isdir(ffbin):
+        os.environ["PATH"] = ffbin + os.pathsep + os.environ.get("PATH", "")
+
+
 def main():
+    _setup_offline_env()
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
     app.setWindowIcon(load_app_icon())

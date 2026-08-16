@@ -36,12 +36,38 @@ BANDS = [
 # Utilidades básicas
 # -------------------------------------------------------------
 
+def _bundled_ffmpeg():
+    """Ruta al ffmpeg bundleado en assets/ffmpeg/<plataforma>/."""
+    base = os.path.dirname(os.path.abspath(__file__))
+    plat = {"win32": "win64", "linux": "linux-amd64", "darwin": "macos"}.get(
+        sys.platform, sys.platform
+    )
+    candidates = [
+        os.path.join(base, "assets", "ffmpeg", plat, "ffmpeg"),
+        os.path.join(base, "assets", "ffmpeg", plat, "ffmpeg.exe"),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return None
+
+
 def ensure_ffmpeg():
-    if shutil.which("ffmpeg") is None:
-        raise RuntimeError(
-            "FFmpeg no está instalado o no está en el PATH. "
-            "Es necesario para MP3/M4A/OPUS y otros formatos."
-        )
+    """Asegura que ffmpeg exista. Primero busca en PATH; si no, usa el
+    ffmpeg bundleado junto a la aplicación (instalador offline)."""
+    if shutil.which("ffmpeg") is not None:
+        return
+    bundled = _bundled_ffmpeg()
+    if bundled is not None:
+        # El binario bundleado ya está en PATH (app.main lo agrega), pero por
+        # si se llama desde otro punto, registramos su carpada.
+        bin_dir = os.path.dirname(bundled)
+        os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+        return
+    raise RuntimeError(
+        "FFmpeg no está instalado ni bundleado. "
+        "Es necesario para MP3/M4A/OPUS y otros formatos."
+    )
 
 
 def safe_filename(name, max_len=80):
