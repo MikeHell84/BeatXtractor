@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="BeatXtractor — Separa batería y bajo de cualquier mezcla, divide piezas, detecta beats, exporta MIDI y one-shots WAV para superiores de batería.">
+<title>BeatXtractor — Bass &amp; Drums Extractor</title>
+<style>
+  :root {
+    --bg: #05050f;
+    --text: #f0f0ff;
+    --muted: #8a8aaa;
+    --accent: #6366f1;
+    --accent2: #a855f7;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow-x: hidden;
+  }
+  #bg-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+  }
+
+  .loader {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999;
+    transition: opacity 0.8s, visibility 0.8s;
+  }
+  .loader.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+  .loader-spinner {
+    width: 40px; height: 40px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  nav {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: 1.5rem 2rem;
+    z-index: 100;
+    display: flex; justify-content: space-between; align-items: center;
+    transition: background 0.3s;
+  }
+  nav.scrolled {
+    background: rgba(5,5,15,0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .logo {
+    font-weight: 700; font-size: 1.2rem;
+    letter-spacing: -0.02em;
+    text-decoration: none;
+    color: var(--text);
+  }
+  .logo span { color: var(--accent); }
+  .nav-links {
+    display: flex; gap: 1.4rem;
+    list-style: none;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .nav-links a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.82rem;
+    font-weight: 500;
+    transition: color 0.3s;
+    position: relative;
+    white-space: nowrap;
+  }
+  .nav-links a:hover, .nav-links a.active { color: var(--text); }
+  .nav-links a.active::after {
+    content: '';
+    position: absolute; bottom: -6px; left: 0;
+    width: 100%; height: 2px;
+    background: var(--accent);
+  }
+
+  section {
+    min-height: 100vh;
+    display: flex; align-items: center;
+    padding: 6rem 2rem;
+    position: relative;
+    z-index: 1;
+  }
+  section.compact { min-height: auto; padding: 5rem 2rem; }
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    width: 100%;
+  }
+  .section-tag {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+    margin-bottom: 1rem;
+    font-weight: 600;
+  }
+  h1 {
+    font-size: clamp(2.5rem, 6vw, 4.5rem);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin-bottom: 1.5rem;
+  }
+  h2 {
+    font-size: clamp(2rem, 4vw, 3rem);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin-bottom: 1.5rem;
+  }
+  h3 { font-size: 1.15rem; margin-bottom: 0.5rem; }
+  .gradient {
+    background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  p, .lead {
+    font-size: 1.05rem;
+    color: var(--muted);
+    line-height: 1.7;
+    max-width: 640px;
+    margin-bottom: 1.5rem;
+  }
+  .btn {
+    display: inline-block;
+    padding: 0.9rem 2rem;
+    background: linear-gradient(135deg, #6366f1, #a855f7);
+    color: white;
+    text-decoration: none;
+    border-radius: 50px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: transform 0.3s, box-shadow 0.3s;
+    border: none;
+    cursor: pointer;
+  }
+  .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px rgba(99,102,241,0.4);
+  }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.15);
+    margin-left: 0.75rem;
+  }
+  .btn-outline:hover {
+    border-color: var(--accent);
+    box-shadow: 0 10px 30px rgba(99,102,241,0.2);
+  }
+
+  #hero { justify-content: center; text-align: center; }
+  #hero .container { display: flex; flex-direction: column; align-items: center; }
+  #hero .lead { max-width: 720px; }
+  .hero-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    justify-content: center;
+    margin-bottom: 2rem;
+  }
+  .badge {
+    font-size: 0.75rem;
+    padding: 0.4rem 0.9rem;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: var(--muted);
+  }
+
+  .skills {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-top: 2rem;
+  }
+  .skill {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    padding: 1.5rem;
+    border-radius: 16px;
+    transition: all 0.3s;
+  }
+  .skill:hover {
+    border-color: var(--accent);
+    transform: translateY(-4px);
+  }
+  .skill-icon { font-size: 1.6rem; margin-bottom: 0.5rem; }
+  .skill p { font-size: 0.85rem; margin: 0; max-width: none; }
+
+  .feature-block {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3rem;
+    align-items: center;
+    margin-top: 2.5rem;
+  }
+  .feature-block.reverse .feature-text { order: 2; }
+  .feature-block.reverse .feature-media { order: 1; }
+  .feature-text p { margin-bottom: 1rem; }
+  .feature-list {
+    list-style: none;
+    margin: 1rem 0 0;
+  }
+  .feature-list li {
+    position: relative;
+    padding-left: 1.4rem;
+    margin-bottom: 0.6rem;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+  .feature-list li::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0.55rem;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  .screenshot-frame {
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.02);
+    box-shadow: 0 25px 60px rgba(0,0,0,0.45);
+  }
+  .screenshot-frame::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(99,102,241,0.15), transparent 60%);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .screenshot-frame img {
+    display: block;
+    width: 100%;
+    height: auto;
+    vertical-align: middle;
+  }
+  .screenshot-caption {
+    padding: 0.75rem 1rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    border-top: 1px solid rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.25);
+  }
+
+  .export-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+    margin-top: 2rem;
+  }
+  .export-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 1.4rem;
+  }
+  .export-card .tag {
+    font-size: 0.7rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+  }
+  .export-card p { font-size: 0.9rem; margin: 0.5rem 0 0; max-width: none; }
+
+  .midi-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1.5rem;
+    font-size: 0.9rem;
+  }
+  .midi-table th, .midi-table td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .midi-table th { color: var(--muted); font-weight: 500; }
+  .midi-table td:last-child { color: var(--accent); font-weight: 600; }
+
+  .install-steps {
+    counter-reset: step;
+    list-style: none;
+    margin-top: 1.5rem;
+  }
+  .install-steps li {
+    counter-increment: step;
+    position: relative;
+    padding: 1.2rem 1.2rem 1.2rem 3.5rem;
+    margin-bottom: 0.75rem;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+  .install-steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 1rem; top: 50%;
+    transform: translateY(-50%);
+    width: 1.8rem; height: 1.8rem;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #6366f1, #a855f7);
+    border-radius: 50%;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: white;
+  }
+  .install-steps code {
+    display: block;
+    margin-top: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    background: rgba(0,0,0,0.35);
+    border-radius: 8px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.82rem;
+    color: #c4b5fd;
+    overflow-x: auto;
+  }
+
+  .keys-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+  .key {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .key kbd {
+    padding: 0.25rem 0.5rem;
+    background: rgba(99,102,241,0.2);
+    border: 1px solid rgba(99,102,241,0.4);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.75rem;
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  footer {
+    padding: 2rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    position: relative;
+    z-index: 1;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  .section-indicator {
+    position: fixed;
+    right: 1.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    z-index: 50;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    transition: all 0.4s;
+    cursor: pointer;
+  }
+  .dot.active {
+    background: var(--accent);
+    transform: scale(1.5);
+    box-shadow: 0 0 12px var(--accent);
+  }
+
+  @media (max-width: 900px) {
+    .feature-block,
+    .feature-block.reverse {
+      grid-template-columns: 1fr;
+    }
+    .feature-block.reverse .feature-text,
+    .feature-block.reverse .feature-media { order: unset; }
+    .nav-links { display: none; }
+    .btn-outline { margin-left: 0; margin-top: 0.75rem; }
+    #hero .btn-group { display: flex; flex-direction: column; align-items: center; }
+  }
+  @media (max-width: 768px) {
+    section { padding: 4rem 1.25rem; }
+    .section-indicator { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div class="loader" id="loader">
+  <div class="loader-spinner"></div>
+</div>
+
+<nav id="navbar">
+  <a href="#hero" class="logo">Beat<span>X</span>tractor</a>
+  <ul class="nav-links">
+    <li><a href="#hero" class="nav-link active">Inicio</a></li>
+    <li><a href="#features" class="nav-link">Características</a></li>
+    <li><a href="#separacion" class="nav-link">Separación</a></li>
+    <li><a href="#division" class="nav-link">División</a></li>
+    <li><a href="#beats" class="nav-link">Beats</a></li>
+    <li><a href="#export" class="nav-link">Exportar</a></li>
+    <li><a href="#install" class="nav-link">Instalar</a></li>
+  </ul>
+</nav>
+
+<div class="section-indicator" id="indicator">
+  <div class="dot active" data-target="hero" title="Inicio"></div>
+  <div class="dot" data-target="features" title="Características"></div>
+  <div class="dot" data-target="separacion" title="Separación"></div>
+  <div class="dot" data-target="division" title="División"></div>
+  <div class="dot" data-target="beats" title="Beats"></div>
+  <div class="dot" data-target="export" title="Exportar"></div>
+  <div class="dot" data-target="install" title="Instalar"></div>
+</div>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="container">
+    <p class="section-tag">Bass &amp; Drums Extractor</p>
+    <h1>Separa, divide y extrae <span class="gradient">batería y bajo</span> de cualquier mezcla</h1>
+    <p class="lead">
+      Aplicación de escritorio en Python y PySide6 para aislar instrumentos con Demucs,
+      descomponer la batería en piezas individuales, detectar golpes, exportar MIDI
+      y generar one-shots WAV listos para Addictive Drums, Superior Drummer, EZdrummer y más.
+    </p>
+    <div class="hero-badges">
+      <span class="badge">Demucs HT-Demucs 4</span>
+      <span class="badge">MIDI &amp; One-shots</span>
+      <span class="badge">Windows · Linux · macOS</span>
+      <span class="badge">Sesiones JSON</span>
+    </div>
+    <div class="btn-group">
+      <a href="#features" class="btn">Ver características ↓</a>
+      <a href="#install" class="btn btn-outline">Instalar</a>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="container">
+    <p class="section-tag">Qué hace</p>
+    <h2>Todo lo que necesitas para <span class="gradient">reutilizar el ritmo</span></h2>
+    <p>Desde cargar un audio hasta exportar un kit de samples o MIDI melódico del bajo, BeatXtractor cubre el flujo completo de producción.</p>
+
+    <div class="feature-block">
+      <div class="feature-media">
+        <div class="screenshot-frame">
+          <img src="Screenshots/01-inicio.png" alt="Pantalla inicial de BeatXtractor con forma de onda, BPM y análisis espectral" loading="lazy">
+          <div class="screenshot-caption">Carga de audio con forma de onda, BPM estimado y análisis por bandas</div>
+        </div>
+      </div>
+      <div class="feature-text">
+        <h3>Carga y escucha con precisión</h3>
+        <p>Abre WAV, FLAC, AIFF, MP3, M4A, AAC, OGG u OPUS. Visualiza la forma de onda, el tempo estimado, la energía por bandas y las frecuencias dominantes.</p>
+        <ul class="feature-list">
+          <li>Reproducción por pista con clic en la forma de onda</li>
+          <li>Panel de propiedades: gain, pan, filtros, gate y fades</li>
+          <li>Auto-ajuste por tipo de pista y render al detector</li>
+          <li>Guardar y cargar sesiones completas en JSON</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="skills">
+      <div class="skill">
+        <div class="skill-icon">🎛️</div>
+        <h3>Separación IA</h3>
+        <p>Aísla batería, bajo, voces y otros con Demucs o modo Sinfónico</p>
+      </div>
+      <div class="skill">
+        <div class="skill-icon">🥁</div>
+        <h3>División de batería</h3>
+        <p>Bombo, redoblante, hi-hat, platillos y toms con algoritmo avanzado</p>
+      </div>
+      <div class="skill">
+        <div class="skill-icon">🎹</div>
+        <h3>Exportación MIDI</h3>
+        <p>Por pieza, batería completa, selección o bajo melódico con pitch</p>
+      </div>
+      <div class="skill">
+        <div class="skill-icon">📦</div>
+        <h3>One-shots &amp; Stems</h3>
+        <p>Kit WAV por golpe y stems en WAV, FLAC, MP3 o AIFF</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SEPARACIÓN -->
+<section id="separacion">
+  <div class="container">
+    <p class="section-tag">Separación por instrumentos</p>
+    <h2>Aísla cada stem con <span class="gradient">Demucs</span></h2>
+
+    <div class="feature-block reverse">
+      <div class="feature-text">
+        <h3>Pop/Rock y modo Sinfónico</h3>
+        <p>Usa HT-Demucs 4 para separar batería, bajo, voces y otros en segundos. El modo Sinfónico descompone instrumentos de orquesta. Los stems generados se auto-ajustan de nivel automáticamente.</p>
+        <ul class="feature-list">
+          <li>El audio original se silencia para evitar duplicación</li>
+          <li>Cada stem con filtros, gate y ganancia independientes</li>
+          <li>Renderizar ajustes congela el audio para el detector</li>
+          <li>Mezcla final con pan, gain, filtros y limitador</li>
+        </ul>
+      </div>
+      <div class="feature-media">
+        <div class="screenshot-frame">
+          <img src="Screenshots/02-separacion.png" alt="Separación Demucs mostrando stems de batería, bajo, voces y otros" loading="lazy">
+          <div class="screenshot-caption">Stems separados: Drums, Bass, Vocals y Other</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DIVISIÓN -->
+<section id="division">
+  <div class="container">
+    <p class="section-tag">División de batería</p>
+    <h2>Descompone el kit en <span class="gradient">piezas individuales</span></h2>
+
+    <div class="feature-block">
+      <div class="feature-media">
+        <div class="screenshot-frame">
+          <img src="Screenshots/03-division.png" alt="División de batería en bombo, redoblante, hi-hat, platillos y toms" loading="lazy">
+          <div class="screenshot-caption">Siete piezas: Kick, Snare, Hi-Hat, Cymbals y tres toms</div>
+        </div>
+      </div>
+      <div class="feature-text">
+        <h3>Algoritmo de eventos + espectro</h3>
+        <p>Con la pista de batería aislada, ajusta Sensibilidad, Agresividad y Suavizado para dividir el kit. Cada pieza recibe sus propios filtros optimizados.</p>
+        <ul class="feature-list">
+          <li>Detección de eventos con plantillas espectrales</li>
+          <li>Enmascarado Wiener para separación limpia</li>
+          <li>Piezas: Bombo, Redoblante, Hi-Hat, Platillos, Tom Agudo/Medio/Bajo</li>
+          <li>Ideal para extraer samples o preparar detección de beats</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BEATS -->
+<section id="beats">
+  <div class="container">
+    <p class="section-tag">Detección de beats</p>
+    <h2>Convierte golpes en <span class="gradient">eventos MIDI</span></h2>
+
+    <div class="feature-block reverse">
+      <div class="feature-text">
+        <h3>Presets para pop, rock, funk y metal</h3>
+        <p>Selecciona una pieza, ajusta Umbral y Retrigger, elige estilo lento o rápido (doble bombo / blast beats) y detecta. Los golpes aparecen marcados sobre la forma de onda.</p>
+        <ul class="feature-list">
+          <li>Modo alta resolución para patrones complejos</li>
+          <li>Asignación automática a notas MIDI estándar</li>
+          <li>MIDI melódico del bajo con pitch detectado</li>
+          <li>Exportar por pista, selección o kit completo</li>
+        </ul>
+
+        <table class="midi-table">
+          <thead>
+            <tr><th>Pieza</th><th>Nota MIDI</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Bombo (Kick)</td><td>36 (C1)</td></tr>
+            <tr><td>Redoblante (Snare)</td><td>38 (D1)</td></tr>
+            <tr><td>Hi-Hat</td><td>42 (F#1)</td></tr>
+            <tr><td>Platillos</td><td>49 (C#2)</td></tr>
+            <tr><td>Tom Agudo / Medio / Bajo</td><td>48 / 45 / 43</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="feature-media">
+        <div class="screenshot-frame">
+          <img src="Screenshots/04-beats.png" alt="Detección de beats en el bombo con marcadores sobre la forma de onda" loading="lazy">
+          <div class="screenshot-caption">Golpes detectados en el Bombo con marcadores en rojo</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-block" style="margin-top: 3rem;">
+      <div class="feature-media">
+        <div class="screenshot-frame">
+          <img src="Screenshots/05-bajo.png" alt="Análisis melódico del bajo con detección de notas" loading="lazy">
+          <div class="screenshot-caption">Análisis del bajo: pitch y notas para MIDI melódico</div>
+        </div>
+      </div>
+      <div class="feature-text">
+        <h3>Bajo melódico exportable</h3>
+        <p>La pista de bajo separada por Demucs se analiza para generar notas con pitch real, no solo percusión. Perfecto para rearmonizar o usar en un DAW.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- EXPORT -->
+<section id="export" class="compact">
+  <div class="container">
+    <p class="section-tag">Exportación</p>
+    <h2>Stems, MIDI y <span class="gradient">one-shots</span> listos para tu DAW</h2>
+    <p>Exporta exactamente lo que escuchas tras aplicar gain, filtros, gate y fades. Los one-shots incluyen nombre, número y velocidad por golpe.</p>
+
+    <div class="export-grid">
+      <div class="export-card">
+        <span class="tag">MIDI</span>
+        <h3>Por pista y selección</h3>
+        <p>MIDI de la pieza activa, batería completa con mapa GM, selección múltiple o bajo melódico.</p>
+      </div>
+      <div class="export-card">
+        <span class="tag">One-shots</span>
+        <h3>Kit WAV</h3>
+        <p>Cada golpe recortado como sample individual, organizado por pieza. Compatible con superiores de batería.</p>
+      </div>
+      <div class="export-card">
+        <span class="tag">Stems</span>
+        <h3>WAV 24-bit</h3>
+        <p>Exporta todas las pistas procesadas a una carpeta, o mezcla seleccionadas en WAV, FLAC, MP3 o AIFF.</p>
+      </div>
+      <div class="export-card">
+        <span class="tag">Sesiones</span>
+        <h3>Proyectos JSON</h3>
+        <p>Guarda pistas, separación, división y ajustes. Retoma el trabajo con Ctrl+S / Ctrl+L.</p>
+      </div>
+    </div>
+
+    <div class="keys-grid" style="margin-top: 2.5rem;">
+      <div class="key"><kbd>Ctrl+O</kbd> Abrir audio</div>
+      <div class="key"><kbd>Ctrl+S</kbd> Guardar sesión</div>
+      <div class="key"><kbd>Ctrl+L</kbd> Cargar sesión</div>
+      <div class="key"><kbd>Espacio</kbd> Play / Stop</div>
+      <div class="key"><kbd>Doble clic</kbd> Renombrar pista</div>
+      <div class="key"><kbd>Ctrl+Q</kbd> Salir</div>
+    </div>
+  </div>
+</section>
+
+<!-- INSTALL -->
+<section id="install">
+  <div class="container">
+    <p class="section-tag">Instalación</p>
+    <h2>Empieza en <span class="gradient">minutos</span></h2>
+    <p>Requisitos: Python 3.10+, 4 GB RAM recomendados. Demucs descarga su modelo automáticamente en la primera separación.</p>
+
+    <ol class="install-steps">
+      <li>
+        Clona el repositorio y crea el entorno virtual
+        <code>git clone https://github.com/MikeHell84/BeatXtractor.git<br>cd BeatXtractor<br>python -m venv venv</code>
+      </li>
+      <li>
+        Activa el entorno e instala dependencias
+        <code># Windows: .\venv\Scripts\activate<br># Linux/macOS: source venv/bin/activate<br>pip install -r requirements.txt</code>
+      </li>
+      <li>
+        Ejecuta la aplicación
+        <code>python app.py<br># O en Windows: .\run.ps1</code>
+      </li>
+    </ol>
+
+    <p style="margin-top: 2rem;">
+      <a href="https://github.com/MikeHell84/BeatXtractor" class="btn" target="_blank" rel="noopener">Ver en GitHub</a>
+    </p>
+  </div>
+</section>
+
+<footer>
+  <p>© 2026 BeatXtractor · Uso libre para fines personales y educativos · <a href="https://github.com/MikeHell84/BeatXtractor">GitHub</a></p>
+</footer>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module" src="drums-bg.js"></script>
+<!-- legacy inline script removed — see drums-bg.js -->
+<script type="text/plain" data-removed="true">
+const PARTICLE_COUNT = 2500;
+const LERP_SPEED = 0.04;
+
+const canvas = document.getElementById('bg-canvas');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setClearColor(0x05050f, 1);
+camera.position.set(0, 0, 30);
+
+const sectionStates = {
+  hero: {
+    cameraPos: { x: 0, y: 0, z: 30 },
+    cameraLook: { x: 0, y: 0, z: 0 },
+    color: new THREE.Color(0x6366f1),
+    color2: new THREE.Color(0xa855f7),
+    bg: new THREE.Color(0x05050f),
+    centralScale: 1,
+    particleSpread: 1,
+    shape: 'sphere'
+  },
+  features: {
+    cameraPos: { x: 6, y: 4, z: 26 },
+    cameraLook: { x: 0, y: 0, z: 0 },
+    color: new THREE.Color(0x10b981),
+    color2: new THREE.Color(0x06b6d4),
+    bg: new THREE.Color(0x050f0a),
+    centralScale: 1.1,
+    particleSpread: 0.95,
+    shape: 'cube'
+  },
+  separacion: {
+    cameraPos: { x: -7, y: 2, z: 27 },
+    cameraLook: { x: 0, y: 0, z: 0 },
+    color: new THREE.Color(0x8b5cf6),
+    color2: new THREE.Color(0x6366f1),
+    bg: new THREE.Color(0x08050f),
+    centralScale: 1.25,
+    particleSpread: 1.1,
+    shape: 'torus'
+  },
+  division: {
+    cameraPos: { x: 5, y: -3, z: 28 },
+    cameraLook: { x: 0, y: 0, z: 0 },
+    color: new THREE.Color(0xf59e0b),
+    color2: new THREE.Color(0xef4444),
+    bg: new THREE.Color(0x0f0805),
+    centralScale: 1.35,
+    particleSpread: 1,
+    shape: 'cube'
+  },
+  beats: {
+    cameraPos: { x: -6, y: -2, z: 26 },
+    cameraLook: { x: 0, y: 0, z: 0 },
+    color: new THREE.Color(0xec4899),
+    color2: new THREE.Color(0xf97316),
+    bg: new THREE.Color(0x0f050a),
+    centralScale: 1.45,
+    particleSpread: 1.2,
+    shape: 'torus'
+  },
+  export: {
+    cameraPos: { x: 0, y: 5, z: 25 },
+    cameraLook: { x: 0, y: 0, z: 0 },
+    color: new THREE.Color(0x22d3ee),
+    color2: new THREE.Color(0x6366f1),
+    bg: new THREE.Color(0x050a0f),
+    centralScale: 1.55,
+    particleSpread: 1.15,
+    shape: 'icosahedron'
+  },
+  install: {
+    cameraPos: { x: 0, y: 0, z: 22 },
+    cameraLook: { x: 0, y: 0, z: 0 },
+    color: new THREE.Color(0xfbbf24),
+    color2: new THREE.Color(0xa855f7),
+    bg: new THREE.Color(0x0a0805),
+    centralScale: 1.7,
+    particleSpread: 0.75,
+    shape: 'icosahedron'
+  }
+};
+
+let currentState = { ...sectionStates.hero, color: sectionStates.hero.color.clone(), color2: sectionStates.hero.color2.clone(), bg: sectionStates.hero.bg.clone() };
+let targetState = { ...sectionStates.hero, color: sectionStates.hero.color.clone(), color2: sectionStates.hero.color2.clone(), bg: sectionStates.hero.bg.clone() };
+
+const particleGeo = new THREE.BufferGeometry();
+const positions = new Float32Array(PARTICLE_COUNT * 3);
+const targetPositions = new Float32Array(PARTICLE_COUNT * 3);
+const colors = new Float32Array(PARTICLE_COUNT * 3);
+
+function getSpherePosition(spread) {
+  const radius = 10 * spread;
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  return {
+    x: radius * Math.sin(phi) * Math.cos(theta),
+    y: radius * Math.sin(phi) * Math.sin(theta),
+    z: radius * Math.cos(phi)
+  };
+}
+
+function getCubePosition(spread) {
+  const size = 8 * spread;
+  const side = Math.floor(Math.random() * 6);
+  const u = (Math.random() - 0.5) * 2 * size;
+  const v = (Math.random() - 0.5) * 2 * size;
+  switch (side) {
+    case 0: return { x: size, y: u, z: v };
+    case 1: return { x: -size, y: u, z: v };
+    case 2: return { x: u, y: size, z: v };
+    case 3: return { x: u, y: -size, z: v };
+    case 4: return { x: u, y: v, z: size };
+    default: return { x: u, y: v, z: -size };
+  }
+}
+
+function getTorusPosition(spread) {
+  const R = 10 * spread;
+  const r = 4 * spread;
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.random() * Math.PI * 2;
+  return {
+    x: (R + r * Math.cos(phi)) * Math.cos(theta),
+    y: r * Math.sin(phi),
+    z: (R + r * Math.cos(phi)) * Math.sin(theta)
+  };
+}
+
+function getIcosahedronPosition(spread) {
+  const radius = 9 * spread;
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  const jitter = 0.3;
+  return {
+    x: radius * Math.sin(phi) * Math.cos(theta) * (1 + (Math.random() - 0.5) * jitter),
+    y: radius * Math.sin(phi) * Math.sin(theta) * (1 + (Math.random() - 0.5) * jitter),
+    z: radius * Math.cos(phi) * (1 + (Math.random() - 0.5) * jitter)
+  };
+}
+
+function positionForShape(shape, spread) {
+  switch (shape) {
+    case 'cube': return getCubePosition(spread);
+    case 'torus': return getTorusPosition(spread);
+    case 'icosahedron': return getIcosahedronPosition(spread);
+    default: return getSpherePosition(spread);
+  }
+}
+
+for (let i = 0; i < PARTICLE_COUNT; i++) {
+  const pos = getSpherePosition(1);
+  positions[i * 3] = pos.x;
+  positions[i * 3 + 1] = pos.y;
+  positions[i * 3 + 2] = pos.z;
+  targetPositions[i * 3] = pos.x;
+  targetPositions[i * 3 + 1] = pos.y;
+  targetPositions[i * 3 + 2] = pos.z;
+  colors[i * 3] = 0.4;
+  colors[i * 3 + 1] = 0.4;
+  colors[i * 3 + 2] = 0.9;
+}
+
+particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+const particles = new THREE.Points(particleGeo, new THREE.PointsMaterial({
+  size: 0.12,
+  vertexColors: true,
+  transparent: true,
+  opacity: 0.9,
+  blending: THREE.AdditiveBlending,
+  sizeAttenuation: true
+}));
+scene.add(particles);
+
+const centralMesh = new THREE.Mesh(
+  new THREE.IcosahedronGeometry(2, 1),
+  new THREE.MeshPhongMaterial({
+    color: 0x6366f1,
+    emissive: 0x6366f1,
+    emissiveIntensity: 0.3,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.6
+  })
+);
+scene.add(centralMesh);
+
+const ring = new THREE.Mesh(
+  new THREE.TorusGeometry(6, 0.08, 16, 100),
+  new THREE.MeshBasicMaterial({ color: 0xa855f7, transparent: true, opacity: 0.4 })
+);
+ring.rotation.x = Math.PI / 2;
+scene.add(ring);
+
+const ring2 = new THREE.Mesh(
+  new THREE.TorusGeometry(8, 0.05, 16, 100),
+  new THREE.MeshBasicMaterial({ color: 0xec4899, transparent: true, opacity: 0.3 })
+);
+ring2.rotation.x = Math.PI / 3;
+ring2.rotation.y = Math.PI / 4;
+scene.add(ring2);
+
+scene.add(new THREE.AmbientLight(0x404040, 0.5));
+const pointLight1 = new THREE.PointLight(0x6366f1, 2, 100);
+pointLight1.position.set(10, 10, 10);
+scene.add(pointLight1);
+const pointLight2 = new THREE.PointLight(0xec4899, 2, 100);
+pointLight2.position.set(-10, -10, 10);
+scene.add(pointLight2);
+
+const mouse = { x: 0, y: 0 };
+const targetMouse = { x: 0, y: 0 };
+document.addEventListener('mousemove', (e) => {
+  targetMouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  targetMouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+function updateTargetPositions(sectionName) {
+  const state = sectionStates[sectionName];
+  const spread = state.particleSpread;
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const pos = positionForShape(state.shape, spread);
+    targetPositions[i * 3] = pos.x;
+    targetPositions[i * 3 + 1] = pos.y;
+    targetPositions[i * 3 + 2] = pos.z;
+  }
+  targetState = {
+    ...state,
+    color: state.color.clone(),
+    color2: state.color2.clone(),
+    bg: state.bg.clone()
+  };
+}
+
+const sections = document.querySelectorAll('section');
+const navLinks = document.querySelectorAll('.nav-link');
+const dots = document.querySelectorAll('.dot');
+let currentSection = 'hero';
+
+const sectionObserver = new IntersectionObserver((entries) => {
+  entries.forEach((entry) => {
+    if (entry.isIntersecting) {
+      const id = entry.target.id;
+      if (id !== currentSection) {
+        currentSection = id;
+        updateTargetPositions(id);
+        navLinks.forEach((link) => {
+          link.classList.toggle('active', link.getAttribute('href') === `#${id}`);
+        });
+        dots.forEach((dot) => {
+          dot.classList.toggle('active', dot.getAttribute('data-target') === id);
+        });
+      }
+    }
+  });
+}, { threshold: 0.45 });
+
+sections.forEach((s) => sectionObserver.observe(s));
+
+dots.forEach((dot) => {
+  dot.addEventListener('click', () => {
+    document.getElementById(dot.getAttribute('data-target')).scrollIntoView({ behavior: 'smooth' });
+  });
+});
+
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const time = clock.getElapsedTime();
+
+  mouse.x += (targetMouse.x - mouse.x) * 0.05;
+  mouse.y += (targetMouse.y - mouse.y) * 0.05;
+
+  currentState.cameraPos.x += (targetState.cameraPos.x - currentState.cameraPos.x) * LERP_SPEED;
+  currentState.cameraPos.y += (targetState.cameraPos.y - currentState.cameraPos.y) * LERP_SPEED;
+  currentState.cameraPos.z += (targetState.cameraPos.z - currentState.cameraPos.z) * LERP_SPEED;
+  currentState.color.lerp(targetState.color, LERP_SPEED);
+  currentState.color2.lerp(targetState.color2, LERP_SPEED);
+  currentState.bg.lerp(targetState.bg, LERP_SPEED);
+  currentState.centralScale += (targetState.centralScale - currentState.centralScale) * LERP_SPEED;
+
+  const posAttr = particleGeo.attributes.position;
+  const colAttr = particleGeo.attributes.color;
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    posAttr.array[i * 3] += (targetPositions[i * 3] - posAttr.array[i * 3]) * LERP_SPEED;
+    posAttr.array[i * 3 + 1] += (targetPositions[i * 3 + 1] - posAttr.array[i * 3 + 1]) * LERP_SPEED;
+    posAttr.array[i * 3 + 2] += (targetPositions[i * 3 + 2] - posAttr.array[i * 3 + 2]) * LERP_SPEED;
+    const t = i / PARTICLE_COUNT;
+    const mixedColor = currentState.color.clone().lerp(currentState.color2, t);
+    colAttr.array[i * 3] = mixedColor.r;
+    colAttr.array[i * 3 + 1] = mixedColor.g;
+    colAttr.array[i * 3 + 2] = mixedColor.b;
+  }
+  posAttr.needsUpdate = true;
+  colAttr.needsUpdate = true;
+
+  particles.rotation.y = time * 0.08;
+  particles.rotation.x = mouse.y * 0.15;
+
+  centralMesh.rotation.x = time * 0.3;
+  centralMesh.rotation.y = time * 0.4;
+  centralMesh.scale.setScalar(currentState.centralScale);
+  centralMesh.material.color.copy(currentState.color);
+  centralMesh.material.emissive.copy(currentState.color);
+
+  ring.rotation.z = time * 0.2;
+  ring.rotation.x = Math.PI / 2 + mouse.y * 0.3;
+  ring.material.color.copy(currentState.color2);
+
+  ring2.rotation.z = -time * 0.15;
+  ring2.rotation.x = Math.PI / 3 + mouse.x * 0.3;
+
+  pointLight1.color.copy(currentState.color);
+  pointLight2.color.copy(currentState.color2);
+
+  camera.position.x = currentState.cameraPos.x + mouse.x * 2;
+  camera.position.y = currentState.cameraPos.y + mouse.y * 2;
+  camera.position.z = currentState.cameraPos.z;
+  camera.lookAt(0, 0, 0);
+
+  renderer.setClearColor(currentState.bg);
+  renderer.render(scene, camera);
+}
+animate();
+
+setTimeout(() => document.getElementById('loader').classList.add('hidden'), 600);
+
+const navbar = document.getElementById('navbar');
+window.addEventListener('scroll', () => {
+  navbar.classList.toggle('scrolled', window.scrollY > 50);
+});
+</script>
+</body>
+</html>

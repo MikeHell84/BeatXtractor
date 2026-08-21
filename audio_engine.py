@@ -271,11 +271,38 @@ def estimate_bpm(audio, sr):
     if len(mono) == 0:
         return 0.0
 
-    if len(mono) > sr * 30:
-        mono = mono[: sr * 30]
+    # Varias ventanas para robustez (librosa tiende a duplicar/halving el tempo)
+    total = len(mono)
+    windows = []
+    for w in (20, 30, 45, 60):
+        if total > sr * w:
+            windows.append(mono[: sr * w])
 
-    tempo, _ = librosa.beat.beat_track(y=mono, sr=sr)
-    return float(np.atleast_1d(tempo)[0])
+    cands = []
+    for win in windows:
+        try:
+            tempo, _ = librosa.beat.beat_track(y=win, sr=sr)
+            cands.append(float(np.atleast_1d(tempo)[0]))
+        except Exception:
+            pass
+
+    if not cands:
+        if len(mono) > sr * 30:
+            mono = mono[: sr * 30]
+        tempo, _ = librosa.beat.beat_track(y=mono, sr=sr)
+        return float(np.atleast_1d(tempo)[0])
+
+    # Agrupar por cercanía (dobles/mitades) y elegir el grupo con más apoyos
+    cands.sort()
+    groups = [[cands[0]]]
+    for c in cands[1:]:
+        g = groups[-1]
+        if abs(c - g[0]) / g[0] < 0.12:
+            g.append(c)
+        else:
+            groups.append([c])
+    best = max(groups, key=len)
+    return float(np.median(best))
 
 
 # -------------------------------------------------------------
@@ -1156,7 +1183,8 @@ def auto_adjust_tracks(tracks):
 # Guardado / carga de sesión
 # -------------------------------------------------------------
 
-def save_session(path, audio, sr, tracks, separation=None, split_result=None):
+def save_session(path, audio, sr, tracks, separation=None, split_result=None,
+                 bpm=None):
     """
     Guarda la sesión completa en un archivo .json.
     Los audios se escriben como .wav junto al .json.
@@ -1177,6 +1205,7 @@ def save_session(path, audio, sr, tracks, separation=None, split_result=None):
 
     payload = {
         "sr": int(sr),
+        "bpm": float(bpm) if bpm else None,
         "tracks": [],
         "separation": {},
         "split_result": {},
@@ -1272,6 +1301,7 @@ def load_session(path):
     return {
         "audio": audio,
         "sr": sr,
+        "bpm": payload.get("bpm"),
         "tracks": tracks,
         "separation": separation,
         "split_result": split_result,
@@ -1568,46 +1598,64 @@ def write_midi(path, events_by_channel, bpm=120.0, tpq=480, gate_s=0.12):
     """
     events_by_channel: { canal(1-16): { nota: [ (t, vel) o (t, dur, vel) ] } }
     Canal 10 = batería GM, canal 1 = bajo, etc.
+    Escribe formato SMF tipo 1 (pista conductora + una pista por canal),
+    con track name meta para máxima compatibilidad con DAWs (Cakewalk, etc.).
     """
-    events = []
+    secs_per_tick = 60.0 / (float(bpm) * tpq)
+    uspq = int(round(60_000_000 / float(bpm)))
+
+    channel_events = {}
     for ch, notes in events_by_channel.items():
         on = 0x90 | (int(ch) - 1)
         off = 0x80 | (int(ch) - 1)
-        for note, evs in notes.items():
-            for ev in evs:
+        evs = []
+        for note, ev_list in notes.items():
+            for ev in ev_list:
                 if len(ev) == 2:
                     t, vel = ev
                     dur = gate_s
                 else:
                     t, dur, vel = ev
-                events.append((t, on, int(note), int(vel)))
-                events.append((t + dur, off, int(note), 0))
+                evs.append((int(round(t / secs_per_tick)), on, int(note), int(vel)))
+                evs.append((int(round((t + dur) / secs_per_tick)), off, int(note), 0))
+        evs.sort(key=lambda e: e[0])
+        channel_events[int(ch)] = evs
 
-    events.sort(key=lambda e: e[0])
+    def _encode_track(events, name=None):
+        body = bytearray()
+        last = 0
+        if name:
+            nb = name.encode("latin-1", "replace")
+            body += _vlq(0) + bytes([0xFF, 0x03, len(nb)]) + nb
+        for tick, status, d1, d2 in events:
+            if tick < last:
+                tick = last
+            body += _vlq(tick - last) + bytes([status, d1, d2])
+            last = tick
+        body += _vlq(0) + bytes([0xFF, 0x2F, 0x00])
+        return bytes(body)
 
-    secs_per_tick = 60.0 / (float(bpm) * tpq)
+    # Pista conductora: tempo + compás + nombre
+    tempo = bytearray()
+    tempo += _vlq(0) + bytes([0xFF, 0x51, 0x03]) + uspq.to_bytes(3, "big")
+    tempo += _vlq(0) + bytes([0xFF, 0x58, 0x04, 4, 2, 24, 8])  # 4/4
+    nb = b"Conductor"
+    tempo += _vlq(0) + bytes([0xFF, 0x03, len(nb)]) + nb
+    tempo += _vlq(0) + bytes([0xFF, 0x2F, 0x00])
 
-    body = bytearray()
-    uspq = int(round(60_000_000 / float(bpm)))
-    body += _vlq(0) + bytes([0xFF, 0x51, 0x03]) + uspq.to_bytes(3, "big")
-
-    last_tick = 0
-    for t, status, d1, d2 in events:
-        tick = int(round(t / secs_per_tick))
-        if tick < last_tick:
-            tick = last_tick
-        body += _vlq(tick - last_tick) + bytes([status, d1, d2])
-        last_tick = tick
-
-    body += _vlq(0) + bytes([0xFF, 0x2F, 0x00])
+    tracks = [bytes(tempo)]
+    for ch in sorted(channel_events):
+        name = {10: "Batería", 1: "Bajo"}.get(ch, f"Canal {ch}")
+        tracks.append(_encode_track(channel_events[ch], name=name))
 
     with open(path, "wb") as f:
         f.write(b"MThd" + (6).to_bytes(4, "big"))
-        f.write((0).to_bytes(2, "big"))
         f.write((1).to_bytes(2, "big"))
+        f.write(len(tracks).to_bytes(2, "big"))
         f.write(tpq.to_bytes(2, "big"))
-        f.write(b"MTrk" + len(body).to_bytes(4, "big"))
-        f.write(bytes(body))
+        for tr in tracks:
+            f.write(b"MTrk" + len(tr).to_bytes(4, "big"))
+            f.write(tr)
 
 
 # ------------------------------------------------------------------

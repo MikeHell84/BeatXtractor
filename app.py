@@ -979,6 +979,7 @@ class MainWindow(QMainWindow):
             data = result["session"]
             self.audio = data["audio"]
             self.sr = data["sr"]
+            self.current_bpm = float(data.get("bpm") or 120.0)
             self.separation = data["separation"]
             self.split_result = data["split_result"]
             self._reset_playback()
@@ -1002,12 +1003,23 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 f"MIDI de batería exportado: {result.get('path', '')}", 8000
             )
-            QMessageBox.information(self, "OK", "MIDI de batería exportado.")
+            QMessageBox.information(
+                self, "OK",
+                f"MIDI de batería exportado a {self.current_bpm:.1f} BPM.\n\n"
+                "En Cakewalk: abre el .mid con Archivo → Abrir (proyecto nuevo) o "
+                "haz clic derecho en la pista Tempo → Importar mapa de tempo desde MIDI, "
+                "para que el tempo del archivo se aplique.",
+            )
         elif getattr(self, "_busy_target", None) == "export_midi_sel":
             self.statusBar().showMessage(
                 f"MIDI por selección exportado: {result.get('path', '')}", 8000
             )
-            QMessageBox.information(self, "OK", "MIDI por selección exportado.")
+            QMessageBox.information(
+                self, "OK",
+                f"MIDI por selección exportado a {self.current_bpm:.1f} BPM.\n\n"
+                "En Cakewalk: abre el .mid con Archivo → Abrir (proyecto nuevo) o "
+                "haz clic derecho en la pista Tempo → Importar mapa de tempo desde MIDI.",
+            )
         elif getattr(self, "_busy_target", None) == "export_wav_sel":
             self.statusBar().showMessage(
                 f"{len(result.get('files', []))} WAV por selección en {result.get('dir', '')}",
@@ -1384,6 +1396,7 @@ class MainWindow(QMainWindow):
             self.tracks,
             self.separation,
             self.split_result,
+            bpm=self.current_bpm,
         )
         return {"path": self._save_session_path}
 
